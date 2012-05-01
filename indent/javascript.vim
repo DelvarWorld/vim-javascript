@@ -77,7 +77,7 @@ function s:IsInMultilineComment(lnum, col)
 endfunction
 
 " Find line above 'lnum' that isn't empty, in a comment, or in a string.
-function s:PrevNonBlankNonString(lnum)
+function s:PrevNonBlankNonStringNonVar(lnum)
   let in_block = 0
   let lnum = prevnonblank(a:lnum)
   while lnum > 0
@@ -92,7 +92,9 @@ function s:PrevNonBlankNonString(lnum)
       endif
     elseif !in_block && line =~ '\*/'
       let in_block = 1
-    elseif !in_block && line !~ '^\s*\%(//\).*$' && !(s:IsInStringOrComment(lnum, 1) && s:IsInStringOrComment(lnum, strlen(line)))
+    " Look backwards until we find a line that is not in a string, comment, or
+    " comma separated var declaration list
+    elseif !in_block && line !~ '^\s*\%(//\).*$' && !(s:IsInStringOrComment(lnum, 1) && s:IsInStringOrComment(lnum, strlen(line))) && line !~ '^\s*\w\+\s*=.*[,;]'
       break
     endif
     let lnum = prevnonblank(lnum - 1)
@@ -104,7 +106,7 @@ endfunction
 function s:GetMSL(lnum, in_one_line_scope)
   " Start on the line we're at and use its indent.
   let msl = a:lnum
-  let lnum = s:PrevNonBlankNonString(a:lnum - 1)
+  let lnum = s:PrevNonBlankNonStringNonVar(a:lnum - 1)
   while lnum > 0
     " If we have a continuation line, or we're in a string, use line as MSL.
     " Otherwise, terminate search as we have found our MSL already.
@@ -124,7 +126,7 @@ function s:GetMSL(lnum, in_one_line_scope)
 	break
       endif
     endif
-    let lnum = s:PrevNonBlankNonString(lnum - 1)
+    let lnum = s:PrevNonBlankNonStringNonVar(lnum - 1)
   endwhile
   return msl
 endfunction
@@ -260,16 +262,24 @@ function GetJavascriptIndent()
   endif
 
   " Find a non-blank, non-multi-line string line above the current line.
-  let lnum = s:PrevNonBlankNonString(v:lnum - 1)
-
-  " If the line is empty and inside a string, use the previous line.
-  if line =~ '^\s*$' && lnum != nonblank_lnum
-    return indent(prevnonblank(v:lnum))
-  endif
+  let lnum = s:PrevNonBlankNonStringNonVar(v:lnum - 1)
 
   " At the start of the file use zero indent.
   if lnum == 0
     return 0
+  endif
+
+  if  (getline(lnum) =~ '^\s*var\s\+' && getline(prevnonblank(v:lnum)) !~ ';\s*\( \|\/\/\|$\|\/\*\)')
+    return indent(lnum) + &sw
+  endif
+
+  " If the line is empty and inside a string, use the previous line
+  if line =~ '^\s*$' && lnum != nonblank_lnum
+    if getline(lnum) =~ '^\s*var\s\+'
+      return indent(lnum)
+    else
+      return indent(prevnonblank(v:lnum))
+    endif
   endif
 
   " Set up variables for current line.
